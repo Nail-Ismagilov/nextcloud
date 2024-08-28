@@ -107,7 +107,11 @@ sudo bash -c "cat > $APACHE_CONF <<EOF
         <IfModule mod_dav.c>
             Dav off
         </IfModule>
-
+        #resolve htst warnings
+        <IfModule mod_headers.c>
+            Header always set Strict-Transport-Security "max-age=15552000; includeSubDomains"
+        </IfModule>
+        
         SetEnv HOME /var/www/nextcloud
         SetEnv HTTP_HOME /var/www/nextcloud
 
@@ -124,6 +128,7 @@ sudo a2enmod ssl
 
 sudo a2ensite nextcloud-ssl.conf
 sudo a2enmod rewrite
+sudo a2enmod headers
 sudo systemctl restart apache2
 
 
