@@ -114,8 +114,8 @@ sudo bash -c "cat > $APACHE_CONF <<EOF
         Satisfy Any
     </Directory>
 
-    ErrorLog \${NEXTCLOUD_LOGS}/error.log
-    CustomLog \${NEXTCLOUD_LOGS}/access.log combined
+    ErrorLog /var/www/nextcloud/logs/error.log
+    CustomLog /var/www/nextcloud/logs/access.log combined
 </VirtualHost>
 EOF"
 
