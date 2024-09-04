@@ -126,6 +126,7 @@ EOF"
 # Enable SSL and site configuration
 sudo a2enmod ssl
 
+sudo a2dissite 000-default.conf
 sudo a2ensite nextcloud-ssl.conf
 sudo a2enmod rewrite
 sudo a2enmod headers
