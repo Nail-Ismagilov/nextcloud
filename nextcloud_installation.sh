@@ -25,15 +25,16 @@ sudo sh -c 'echo "deb [signed-by=/usr/share/keyrings/deb.sury.org-php.gpg] https
 sudo apt update
 
 # Install new PHP 8.3 packages
-sudo apt install -y php-mbstring php-xml php-gd php-curl php-zip php-mysql libapache2-mod-php php8.3 php8.3-cli php8.3-{bz2,curl,mbstring,intl}
+sudo apt install -y php8.2 php8.2-mysql php8.2-intl php8.2-curl php8.2-mbstring php8.2-xml php8.2-zip php8.2-ldap php8.2-gd php8.2-bz2 php8.2-sqlite3 php8.2-redis
+# sudo apt install -y php-mbstring php-xml php-gd php-curl php-zip php-mysql libapache2-mod-php php8.3 php8.3-cli php8.3-{bz2,curl,mbstring,intl}
 
 # Install FPM OR Apache module
-sudo apt install php8.3-fpm
+sudo apt install php8.2-fpm
 # OR
-# sudo apt install libapache2-mod-php8.3
+sudo apt install libapache2-mod-php8.2
 
 # On Apache: Enable PHP 8.3 FPM
-sudo a2enconf php8.3-fpm
+sudo a2enconf php8.2-fpm
 
 
 ## Download and install zerotier
