@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Variables
-FQDN="cloud.local"
+FQDN="nextcloud.local"
 COUNTRY="DE"
 STATE="Baden-Wuerttemberg"
 CERT_DIR="/etc/ssl/cloud"
@@ -24,23 +24,59 @@ sudo curl -sSLo /usr/share/keyrings/deb.sury.org-php.gpg https://packages.sury.o
 sudo sh -c 'echo "deb [signed-by=/usr/share/keyrings/deb.sury.org-php.gpg] https://packages.sury.org/php/ $(lsb_release -sc) main" > /etc/apt/sources.list.d/php.list'
 sudo apt update
 
-# Install new PHP 8.3 packages
-sudo apt install -y php8.3 php8.3-mysql php8.3-intl php8.3-curl php8.3-mbstring php8.3-xml php8.3-zip php8.3-ldap php8.3-gd php8.3-bz2 php8.3-sqlite3 php8.3-redis
-# sudo apt install -y php-mbstring php-xml php-gd php-curl php-zip php-mysql libapache2-mod-php php8.3 php8.3-cli php8.3-{bz2,curl,mbstring,intl}
+# Install new PHP 8.2 packages
+sudo apt install -y php8.2 php8.2-mysql php8.2-intl php8.2-curl php8.2-mbstring php8.2-xml php8.2-zip php8.2-ldap php8.2-gd php8.2-bz2 php8.2-sqlite3 php8.2-redis
+# sudo apt install -y php-mbstring php-xml php-gd php-curl php-zip php-mysql libapache2-mod-php php8.2 php8.2-cli php8.2-{bz2,curl,mbstring,intl}
 
 # Install FPM OR Apache module
-sudo apt install php8.3-fpm
+sudo apt install php8.2-fpm
 # OR
-sudo apt install libapache2-mod-php8.3
+sudo apt install libapache2-mod-php8.2
 
-# On Apache: Enable PHP 8.3 FPM
-sudo a2enconf php8.3-fpm
+# On Apache: Enable PHP 8.2 FPM
+sudo a2enconf php8.2-fpm
+
+# Install PHP modules 
+sudo apt install php8.2-bcmath php8.2-gmp -y
+sudo a2enmod proxy_fcgi setenvif
+sudo a2enconf php8.2-fpm
 
 # Install PHP and Imagick extension 
-sudo apt install php php8.3-imagick -y 
+sudo apt install php php8.2-imagick -y 
+sudo apt install libmagickcore-6.q16-6-extra -y
 
 # Install FFmpeg and FFprobe 
 sudo apt install ffmpeg -y
+
+# Install Redis server and PHP Redis extension
+sudo apt install redis-server php8.2-redis -y
+
+
+## Setting up php and opcache
+# Locate the php.ini file for PHP 8.2
+PHP_INI=$(find /etc -name php.ini | grep "8.2")
+
+# Check if the php.ini file was found
+if [ -z "$PHP_INI" ]; then
+  echo "php.ini file for PHP 8.2 not found."
+  exit 1
+fi
+
+# Increase the opcache.interned_strings_buffer value
+sudo sed -i 's/;opcache.interned_strings_buffer=.*/opcache.interned_strings_buffer=16/' "$PHP_INI"
+
+# Increase the memory limit to 512 MB
+sudo sed -i 's/memory_limit = .*/memory_limit = 512M/' "$PHP_INI"
+
+# Restart Apache to apply changes
+sudo systemctl restart apache2
+
+# Verify the new settings
+php -r "echo ini_get('opcache.interned_strings_buffer');"
+php -r "echo ini_get('memory_limit');"
+
+echo "PHP memory limit and OPcache interned strings buffer increased successfully!"
+
 
 ## Download and install zerotier
 curl -s https://install.zerotier.com | sudo bash
@@ -92,8 +128,8 @@ sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
 # Configure Apache2 for SSL
 sudo bash -c "cat > $APACHE_CONF <<EOF
 <VirtualHost *:80>
-    ServerName mycloud.local
-    Redirect permanent / https://mycloud.local/
+    ServerName nextcloud.local
+    Redirect permanent / https://nextcloud.local/
 </VirtualHost>
 
 <VirtualHost *:443>
@@ -115,7 +151,7 @@ sudo bash -c "cat > $APACHE_CONF <<EOF
         </IfModule>
         #resolve htst warnings
         <IfModule mod_headers.c>
-            Header always set Strict-Transport-Security "max-age=15552000; includeSubDomains"
+            Header always set Strict-Transport-Security \"max-age=15552000; includeSubDomains\"
         </IfModule>
         
         SetEnv HOME /var/www/nextcloud
