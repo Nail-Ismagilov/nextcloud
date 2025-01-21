@@ -42,7 +42,7 @@ sudo sed -i "/);/i 'memcache.local' => '\\\\OC\\\\Memcache\\\\Redis',\n  'memcac
 
 
 # Install necessary PHP extensions
-sudo apt install  php-gd -y
+sudo apt install  php8.2-gd -y
 
 # Add preview generator configuration to config.php
 sudo sed -i "/);/i 'preview_max_x' => 2048,\n  'preview_max_y' => 2048,\n  'jpeg_quality' => 60," "$CONFIG_FILE"

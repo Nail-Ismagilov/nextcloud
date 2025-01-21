@@ -62,12 +62,20 @@ if [ -z "$PHP_INI" ]; then
   exit 1
 fi
 
-# Increase the opcache.interned_strings_buffer value
-sudo sed -i 's/;opcache.interned_strings_buffer=.*/opcache.interned_strings_buffer=16/' "$PHP_INI"
+# # Increase the opcache.interned_strings_buffer value
+# sudo sed -i 's/;opcache.interned_strings_buffer=.*/opcache.interned_strings_buffer=16/' "$PHP_INI"
 
-# Increase the memory limit to 512 MB
-sudo sed -i 's/memory_limit = .*/memory_limit = 512M/' "$PHP_INI"
+# # Increase the memory limit to 512 MB
+# sudo sed -i 's/memory_limit = .*/memory_limit = 512M/' "$PHP_INI"
 
+# Update php.ini settings
+sudo sed -i 's/memory_limit = .*/memory_limit = 1G/' /etc/php/8.2/fpm/php.ini
+sudo sed -i 's/upload_max_filesize = .*/upload_max_filesize = 10G/' /etc/php/8.2/fpm/php.ini
+sudo sed -i 's/max_file_uploads = .*/max_file_uploads = 50/' /etc/php/8.2/fpm/php.ini
+sudo sed -i 's/;opcache.interned_strings_buffer = .*/opcache.interned_strings_buffer = 32/' /etc/php/8.2/fpm/php.ini
+
+# Restart PHP-FPM
+sudo systemctl restart php8.2-fpm
 # Restart Apache to apply changes
 sudo systemctl restart apache2
 
