@@ -127,7 +127,7 @@ sudo mkdir -p $NEXTCLOUD_LOGS
 sudo mkdir -p $CERT_DIR
 
 # Generate self-signed SSL certificate
-sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+sudo openssl req -x509 -nodes -days 36500 -newkey rsa:2048 \
   -keyout $CERT_DIR/cloud.key \
   -out $CERT_DIR/cloud.crt \
   -subj "/C=$COUNTRY/ST=$STATE/L=/O=/OU=/CN=$FQDN"
