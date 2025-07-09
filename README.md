@@ -34,6 +34,20 @@ sudo ./nextcloud_installation.sh
 - Downloads and sets up Nextcloud in `/var/www/nextcloud`.
 - Restarts necessary services.
 
+**Configurable Variables Example:**
+You can override default values by setting environment variables before running the script. For example:
+
+```bash
+export FQDN=mycloud.example.com
+export DB_NAME=cloud_db
+export DB_USER=clouduser
+export DB_PASS=supersecretpassword
+export PHP_VERSION=8.3
+sudo -E ./nextcloud_installation.sh
+```
+- The `-E` flag preserves your environment variables when using sudo.
+- You can set any combination of variables: `FQDN`, `DB_NAME`, `DB_USER`, `DB_PASS`, `PHP_VERSION`.
+
 **Tailscale Setup:**
 - After installation, you may be prompted to run:
   ```bash
