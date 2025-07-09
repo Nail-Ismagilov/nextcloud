@@ -1,204 +1,170 @@
 #!/bin/bash
 
-# Variables
-FQDN="nextcloud.local"
-COUNTRY="DE"
-STATE="Baden-Wuerttemberg"
+set -euo pipefail
+
+# --- CONFIGURABLE VARIABLES ---
+FQDN="${FQDN:-nextcloud.local}"
+COUNTRY="${COUNTRY:-DE}"
+STATE="${STATE:-Baden-Wuerttemberg}"
 CERT_DIR="/etc/ssl/cloud"
 APACHE_CONF="/etc/apache2/sites-available/nextcloud-ssl.conf"
 NEXTCLOUD_LOGS="/var/www/nextcloud/logs"
-ZEROTIER_NETWORKID="db64858feda3293e"
+DB_NAME="${DB_NAME:-nextcloud}"
+DB_USER="${DB_USER:-nextclouduser}"
+DB_PASS="${DB_PASS:-}"
+PHP_VERSION="8.3"
 
-# Update system
-sudo apt update && sudo apt upgrade -y
-
-# Install necessary packages
-sudo apt install -y apache2 mariadb-server  unzip openssl  curl
-
-# Save existing php package list to packages.txt file
-sudo dpkg -l | grep php | tee packages.txt
-
-# Add Ondrej's repo source and signing key along with dependencies
-sudo apt install -y apt-transport-https
-sudo curl -sSLo /usr/share/keyrings/deb.sury.org-php.gpg https://packages.sury.org/php/apt.gpg
-sudo sh -c 'echo "deb [signed-by=/usr/share/keyrings/deb.sury.org-php.gpg] https://packages.sury.org/php/ $(lsb_release -sc) main" > /etc/apt/sources.list.d/php.list'
-sudo apt update
-
-# Install new PHP 8.2 packages
-sudo apt install -y php8.2 php8.2-mysql php8.2-intl php8.2-curl php8.2-mbstring php8.2-xml php8.2-zip php8.2-ldap php8.2-gd php8.2-bz2 php8.2-sqlite3 php8.2-redis
-# sudo apt install -y php-mbstring php-xml php-gd php-curl php-zip php-mysql libapache2-mod-php php8.2 php8.2-cli php8.2-{bz2,curl,mbstring,intl}
-
-# Install FPM OR Apache module
-sudo apt install php8.2-fpm
-# OR
-sudo apt install libapache2-mod-php8.2
-
-# On Apache: Enable PHP 8.2 FPM
-sudo a2enconf php8.2-fpm
-
-# Install PHP modules 
-sudo apt install php8.2-bcmath php8.2-gmp -y
-sudo a2enmod proxy_fcgi setenvif
-sudo a2enconf php8.2-fpm
-
-# Install PHP and Imagick extension 
-sudo apt install php php8.2-imagick -y 
-sudo apt install libmagickcore-6.q16-6-extra -y
-
-# Install FFmpeg and FFprobe 
-sudo apt install ffmpeg -y
-
-# Install Redis server and PHP Redis extension
-sudo apt install redis-server php8.2-redis -y
-
-
-## Setting up php and opcache
-# Locate the php.ini file for PHP 8.2
-PHP_INI=$(find /etc -name php.ini | grep "8.2")
-
-# Check if the php.ini file was found
-if [ -z "$PHP_INI" ]; then
-  echo "php.ini file for PHP 8.2 not found."
+# --- ROOT CHECK ---
+if [[ $EUID -ne 0 ]]; then
+  echo "This script must be run as root. Please use sudo." >&2
   exit 1
 fi
 
-# # Increase the opcache.interned_strings_buffer value
-# sudo sed -i 's/;opcache.interned_strings_buffer=.*/opcache.interned_strings_buffer=16/' "$PHP_INI"
+# --- PROMPT FOR DB PASSWORD IF NOT SET ---
+if [[ -z "$DB_PASS" ]]; then
+  read -rsp "Enter password for Nextcloud database user: " DB_PASS
+  echo
+fi
 
-# # Increase the memory limit to 512 MB
-# sudo sed -i 's/memory_limit = .*/memory_limit = 512M/' "$PHP_INI"
+# --- UPDATE SYSTEM ---
+echo "Updating system..."
+apt update && apt upgrade -y
 
-# Update php.ini settings
-sudo sed -i 's/memory_limit = .*/memory_limit = 1G/' /etc/php/8.2/fpm/php.ini
-sudo sed -i 's/upload_max_filesize = .*/upload_max_filesize = 10G/' /etc/php/8.2/fpm/php.ini
-sudo sed -i 's/max_file_uploads = .*/max_file_uploads = 50/' /etc/php/8.2/fpm/php.ini
-sudo sed -i 's/;opcache.interned_strings_buffer = .*/opcache.interned_strings_buffer = 32/' /etc/php/8.2/fpm/php.ini
+# --- INSTALL PACKAGES ---
+echo "Installing required packages..."
+apt install -y apache2 mariadb-server unzip openssl curl apt-transport-https ffmpeg redis-server \
+  libmagickcore-6.q16-6-extra php php${PHP_VERSION}-fpm php${PHP_VERSION}-mysql php${PHP_VERSION}-intl php${PHP_VERSION}-curl php${PHP_VERSION}-mbstring \
+  php${PHP_VERSION}-xml php${PHP_VERSION}-zip php${PHP_VERSION}-ldap php${PHP_VERSION}-gd php${PHP_VERSION}-bz2 php${PHP_VERSION}-sqlite3 php${PHP_VERSION}-redis php${PHP_VERSION}-bcmath php${PHP_VERSION}-gmp php${PHP_VERSION}-imagick jq
 
-# Restart PHP-FPM
-sudo systemctl restart php8.2-fpm
-# Restart Apache to apply changes
-sudo systemctl restart apache2
+# --- ADD PHP REPO IF NEEDED ---
+if ! grep -q 'packages.sury.org' /etc/apt/sources.list.d/php.list 2>/dev/null; then
+  echo "Adding PHP repository..."
+  curl -sSLo /usr/share/keyrings/deb.sury.org-php.gpg https://packages.sury.org/php/apt.gpg
+  echo "deb [signed-by=/usr/share/keyrings/deb.sury.org-php.gpg] https://packages.sury.org/php/ $(lsb_release -sc) main" > /etc/apt/sources.list.d/php.list
+  apt update
+fi
 
-# Verify the new settings
-php -r "echo ini_get('opcache.interned_strings_buffer');"
-php -r "echo ini_get('memory_limit');"
+# --- ENABLE APACHE MODULES ---
+a2enmod proxy_fcgi setenvif ssl rewrite headers
 
-echo "PHP memory limit and OPcache interned strings buffer increased successfully!"
+a2enconf php${PHP_VERSION}-fpm
 
+# --- PHP CONFIGURATION ---
+echo "Configuring PHP..."
+sed -i 's/memory_limit = .*/memory_limit = 1G/' /etc/php/${PHP_VERSION}/fpm/php.ini
+sed -i 's/upload_max_filesize = .*/upload_max_filesize = 10G/' /etc/php/${PHP_VERSION}/fpm/php.ini
+sed -i 's/max_file_uploads = .*/max_file_uploads = 50/' /etc/php/${PHP_VERSION}/fpm/php.ini
+sed -i 's/;opcache.interned_strings_buffer = .*/opcache.interned_strings_buffer = 32/' /etc/php/${PHP_VERSION}/fpm/php.ini
 
-## Download and install zerotier
-curl -s https://install.zerotier.com | sudo bash
-# Join a ZeroTier network (replace <network_id> with your actual network ID)
-sudo zerotier-cli join $ZEROTIER_NETWORKID
+systemctl restart php${PHP_VERSION}-fpm
+systemctl restart apache2
 
-# Enable ZeroTier service to start on boot
-sudo systemctl enable zerotier-one
-sudo systemctl start zerotier-one
+echo "PHP configuration updated."
 
-## Secure MariaDB
-sudo mysql_secure_installation <<EOF
+# --- INSTALL TAILSCALE ---
+echo "Installing Tailscale..."
+curl -fsSL https://tailscale.com/install.sh | sh
+systemctl enable --now tailscaled
 
-y
-n
-y
-y
-y
-y
-EOF
+echo "Tailscale installed. To connect this machine to your Tailscale network, run:"
+echo "  sudo tailscale up"
+echo "and follow the authentication instructions in your browser."
+echo "For more information, see: https://tailscale.com/kb/"
 
-## Create Nextcloud database and user
-sudo mysql -u root <<EOF
-CREATE DATABASE nextcloud;
-CREATE USER 'nextclouduser'@'localhost' IDENTIFIED BY 'password';
-GRANT ALL PRIVILEGES ON nextcloud.* TO 'nextclouduser'@'localhost';
+echo "Waiting for Tailscale connection..."
+while ! tailscale status --json 2>/dev/null | jq -e '.Self.DNSName' >/dev/null; do
+  sleep 2
+done
+MAGICDNS_NAME=$(tailscale status --json | jq -r '.Self.DNSName')
+echo "Tailscale MagicDNS name detected: $MAGICDNS_NAME"
+
+# --- SECURE MARIADB ---
+echo "Securing MariaDB..."
+mysql -u root <<EOF
+DELETE FROM mysql.user WHERE User='';
+DROP DATABASE IF EXISTS test;
+DELETE FROM mysql.db WHERE Db='test' OR Db='test\_%';
 FLUSH PRIVILEGES;
-EXIT;
 EOF
 
-# Download and install Nextcloud
-wget https://download.nextcloud.com/server/releases/latest.zip
-unzip latest.zip
-sudo mv nextcloud /var/www/
-sudo chown -R www-data:www-data /var/www/nextcloud/
-sudo chmod -R 755 /var/www/nextcloud/
-sudo mkdir -p $NEXTCLOUD_LOGS
+# --- CREATE NEXTCLOUD DB AND USER ---
+echo "Creating Nextcloud database and user..."
+mysql -u root <<EOF
+CREATE DATABASE IF NOT EXISTS $DB_NAME;
+CREATE USER IF NOT EXISTS '$DB_USER'@'localhost' IDENTIFIED BY '$DB_PASS';
+GRANT ALL PRIVILEGES ON $DB_NAME.* TO '$DB_USER'@'localhost';
+FLUSH PRIVILEGES;
+EOF
 
-## Create directory for SSL certificate
-sudo mkdir -p $CERT_DIR
+echo "Database and user created."
 
-# Generate self-signed SSL certificate
-sudo openssl req -x509 -nodes -days 36500 -newkey rsa:2048 \
-  -keyout $CERT_DIR/cloud.key \
-  -out $CERT_DIR/cloud.crt \
-  -subj "/C=$COUNTRY/ST=$STATE/L=/O=/OU=/CN=$FQDN"
+# --- DOWNLOAD AND INSTALL NEXTCLOUD ---
+echo "Downloading Nextcloud..."
+wget -q https://download.nextcloud.com/server/releases/latest.zip -O /tmp/nextcloud.zip
+unzip -q /tmp/nextcloud.zip -d /tmp/
+mv /tmp/nextcloud /var/www/
+chown -R www-data:www-data /var/www/nextcloud/
+chmod -R 755 /var/www/nextcloud/
+mkdir -p "$NEXTCLOUD_LOGS"
+rm -f /tmp/nextcloud.zip
 
+echo "Nextcloud files installed."
 
-# Configure Apache2 for SSL
-sudo bash -c "cat > $APACHE_CONF <<EOF
+# --- SSL CERTIFICATE ---
+echo "Generating self-signed SSL certificate for $FQDN and $MAGICDNS_NAME..."
+mkdir -p "$CERT_DIR"
+openssl req -x509 -nodes -days 36500 -newkey rsa:2048 \
+  -keyout "$CERT_DIR/cloud.key" \
+  -out "$CERT_DIR/cloud.crt" \
+  -subj "/C=$COUNTRY/ST=$STATE/L=/O=/OU=/CN=$FQDN" \
+  -addext "subjectAltName=DNS:$FQDN,DNS:$MAGICDNS_NAME"
+
+echo "SSL certificate created."
+
+# --- APACHE CONFIGURATION ---
+echo "Configuring Apache for Nextcloud..."
+cat > "$APACHE_CONF" <<EOF
 <VirtualHost *:80>
-    ServerName nextcloud.local
-    Redirect permanent / https://nextcloud.local/
+    ServerName $FQDN
+    ServerAlias $MAGICDNS_NAME
+    Redirect permanent / https://$FQDN/
 </VirtualHost>
 
 <VirtualHost *:443>
     ServerAdmin admin@$FQDN
     ServerName $FQDN
-
+    ServerAlias $MAGICDNS_NAME
     DocumentRoot /var/www/nextcloud
-
     SSLEngine on
     SSLCertificateFile $CERT_DIR/cloud.crt
     SSLCertificateKeyFile $CERT_DIR/cloud.key
-
     <Directory /var/www/nextcloud/>
         Options +FollowSymlinks
         AllowOverride All
-
         <IfModule mod_dav.c>
             Dav off
         </IfModule>
-        #resolve htst warnings
         <IfModule mod_headers.c>
-            Header always set Strict-Transport-Security \"max-age=15552000; includeSubDomains\"
+            Header always set Strict-Transport-Security "max-age=15552000; includeSubDomains"
         </IfModule>
-        
         SetEnv HOME /var/www/nextcloud
         SetEnv HTTP_HOME /var/www/nextcloud
-
         Satisfy Any
     </Directory>
-
-    ErrorLog /var/www/nextcloud/logs/error.log
-    CustomLog /var/www/nextcloud/logs/access.log combined
+    ErrorLog $NEXTCLOUD_LOGS/error.log
+    CustomLog $NEXTCLOUD_LOGS/access.log combined
 </VirtualHost>
-EOF"
+EOF
 
-# Enable SSL and site configuration
-sudo a2enmod ssl
+a2dissite 000-default.conf || true
+a2ensite nextcloud-ssl.conf
+systemctl reload apache2
 
-sudo a2dissite 000-default.conf
-sudo a2ensite nextcloud-ssl.conf
-sudo a2enmod rewrite
-sudo a2enmod headers
-sudo systemctl restart apache2
+echo "Apache configured for Nextcloud."
 
-
-# # Mount external storage
-# sudo mkdir -p /mnt/external_storage
-# sudo mount /dev/sda1 /mnt/external_storage
-
-# # Configure fstab for automount
-# sudo bash -c 'echo "UUID=<UUID> /mnt/external_storage ext4 defaults 0 2" >> /etc/fstab'
-
-# # Set permissions for external storage
-# sudo chown -R www-data:www-data /mnt/external_storage
-# sudo chmod -R 755 /mnt/external_storage
-
-# # Print completion message
-# echo "Nextcloud installation is complete. External storage is mounted and configured."
-# echo "Please complete the Nextcloud setup through the web interface."
-# echo "Open your web browser and navigate to http://<your-pi-ip-address> to finish the setup."
-
-######## Additionally needs to be done changes to /etc/hosts file namely add
-#ip-address      mycloud.local
-# example: 10.147.17.17     mycloud.local
+echo "\n--- INSTALLATION COMPLETE ---"
+echo "1. Add your server IP and FQDN to /etc/hosts if needed (e.g. 10.0.0.1 $FQDN)"
+echo "2. Open https://$FQDN/ or https://$MAGICDNS_NAME/ in your browser to complete Nextcloud setup."
+echo "3. Database: $DB_NAME, User: $DB_USER, Password: (what you entered)"
+echo "4. Tailscale: Run 'sudo tailscale up' to connect this machine to your Tailscale network if not already connected."
+echo "\nFor more details, see the README.md."
