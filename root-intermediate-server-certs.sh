@@ -1,4 +1,4 @@
-#!/bin/bash
+лэ#!/bin/bash
 
 ################################################################################
 # Raspberry Pi Zero 2W Certificate Authority Setup
@@ -309,6 +309,7 @@ subjectAltName = @alt_names
 DNS.1 = nextcloud.local
 DNS.2 = nextcloud
 DNS.3 = localhost
+DNS.4 = nextcloud.tail70fc28.ts.net
 IP.1 = 127.0.0.1
 
 [ crl_ext ]
@@ -573,7 +574,7 @@ set -e
 
 INTERMEDIATE_CA_DIR="$(dirname "$0")"
 SERVER_CN="nextcloud.local"
-SERVER_CERT_DAYS=825
+SERVER_CERT_DAYS=1825
 
 echo "=== Nextcloud Certificate Renewal ==="
 echo ""
