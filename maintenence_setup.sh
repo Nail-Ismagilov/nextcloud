@@ -1,62 +1,71 @@
 #!/bin/bash
 
-# Define the path to the Nextcloud config.php file
-CONFIG_FILE="/var/www/nextcloud/config/config.php"
+set -euo pipefail
 
-# Check if the config.php file exists
-if [ ! -f "$CONFIG_FILE" ]; then
-  echo "config.php file not found at $CONFIG_FILE"
+# --- ROOT CHECK ---
+if [[ $EUID -ne 0 ]]; then
+  echo "This script must be run as root. Please use sudo." >&2
   exit 1
 fi
 
-# Add the maintenance_window_start setting
-sudo sed -i "/);/i 'maintenance_window_start' => 1," "$CONFIG_FILE"
+# --- CONFIGURATION ---
+NEXTCLOUD_PATH="/var/www/nextcloud"
+CONFIG_FILE="$NEXTCLOUD_PATH/config/config.php"
+OCC="$NEXTCLOUD_PATH/occ"
 
+# --- CHECKS ---
+if [ ! -f "$CONFIG_FILE" ]; then
+  echo "config.php file not found at $CONFIG_FILE" >&2
+  exit 1
+fi
+if [ ! -f "$OCC" ]; then
+  echo "Nextcloud occ command not found at $OCC" >&2
+  exit 1
+fi
+
+# --- BACKUP CONFIG ---
+cp "$CONFIG_FILE" "$CONFIG_FILE.bak.$(date +%Y%m%d%H%M%S)"
+echo "Backup of config.php created."
+
+# --- DETECT PHP VERSION ---
+PHP_VERSION=$(php -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;')
+
+# --- MAINTENANCE WINDOW ---
+sed -i "/);/i 'maintenance_window_start' => 1," "$CONFIG_FILE"
 echo "Added 'maintenance_window_start' => 1 to $CONFIG_FILE"
 
-# Pfad zur Nextcloud-Installation
-NEXTCLOUD_PATH="/var/www/nextcloud"
+# --- ADD MISSING INDICES ---
+sudo -u www-data php "$OCC" db:add-missing-indices
+echo "Missing indices added."
 
-# Führen Sie den Befehl aus, um fehlende Indizes hinzuzufügen
-sudo -u www-data php $NEXTCLOUD_PATH/occ db:add-missing-indices
+# --- RESTART REDIS ---
+systemctl restart redis-server
 
-echo "Fehlende Indizes wurden erfolgreich hinzugefügt!"
+# --- REDIS CONFIGURATION ---
+sed -i "/);/i 'memcache.local' => '\\OC\\Memcache\\Redis',\n  'memcache.locking' => '\\OC\\Memcache\\Redis',\n  'redis' => [\n    'host' => 'localhost',\n    'port' => 6379,\n  ]," "$CONFIG_FILE"
+echo "Redis configuration added to $CONFIG_FILE."
 
-
-# Restart Redis and Apache to apply changes
-sudo systemctl restart redis-server
-
-
-# Define the path to the Nextcloud config.php file
-CONFIG_FILE="/var/www/nextcloud/config/config.php"
-
-# Check if the config.php file exists
-if [ ! -f "$CONFIG_FILE" ]; then
-  echo "config.php file not found at $CONFIG_FILE"
-  exit 1
+# --- INSTALL PHP GD EXTENSION IF NEEDED ---
+if ! php -m | grep -q gd; then
+  echo "Installing php${PHP_VERSION}-gd..."
+  apt install -y php${PHP_VERSION}-gd
 fi
 
-# Add Redis configuration to config.php
-sudo sed -i "/);/i 'memcache.local' => '\\\\OC\\\\Memcache\\\\Redis',\n  'memcache.locking' => '\\\\OC\\\\Memcache\\\\Redis',\n  'redis' => [\n    'host' => 'localhost',\n    'port' => 6379,\n  ]," "$CONFIG_FILE"
+# --- PREVIEW GENERATOR CONFIG ---
+sed -i "/);/i 'preview_max_x' => 2048,\n  'preview_max_y' => 2048,\n  'jpeg_quality' => 60," "$CONFIG_FILE"
+echo "Preview generator configuration added to $CONFIG_FILE."
 
+# --- INSTALL & ENABLE PREVIEW GENERATOR APP ---
+sudo -u www-data php "$OCC" app:install previewgenerator || true
+sudo -u www-data php "$OCC" app:enable previewgenerator
+echo "Preview Generator app installed and enabled."
 
+# --- GENERATE PREVIEWS ---
+sudo -u www-data php "$OCC" preview:generate-all
+echo "Previews generated."
 
-# Install necessary PHP extensions
-sudo apt install  php8.2-gd -y
+# --- RESTART APACHE ---
+systemctl restart apache2
+echo "Apache restarted."
 
-# Add preview generator configuration to config.php
-sudo sed -i "/);/i 'preview_max_x' => 2048,\n  'preview_max_y' => 2048,\n  'jpeg_quality' => 60," "$CONFIG_FILE"
-
-# Install the Preview Generator app
-sudo -u www-data php /var/www/nextcloud/occ app:install previewgenerator
-
-# Enable the Preview Generator app
-sudo -u www-data php /var/www/nextcloud/occ app:enable previewgenerator
-
-# Generate previews
-sudo -u www-data php /var/www/nextcloud/occ preview:generate-all
-
-
-
-
-sudo systemctl restart apache2
+echo "\nMaintenance setup complete. Backup of config.php is at $CONFIG_FILE.bak.*"
